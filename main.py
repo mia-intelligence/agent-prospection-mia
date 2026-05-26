@@ -43,10 +43,10 @@ def run_daily_prospection():
     logger.info("Collecte Google Maps...")
     google_leads = fetch_leads_google_maps(max_per_sector=3)
 
-    logger.info("Collecte Apollo...")
-    apollo_leads = fetch_leads_apollo(max_per_sector=5)
+    # Apollo désactivé — nécessite un plan payant (People Search)
+    # apollo_leads = fetch_leads_apollo(max_per_sector=5)
 
-    all_leads = google_leads + apollo_leads
+    all_leads = google_leads
     logger.info(f"Total leads bruts : {len(all_leads)}")
 
     sent_count = 0
