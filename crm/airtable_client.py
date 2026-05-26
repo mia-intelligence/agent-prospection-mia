@@ -65,9 +65,7 @@ def save_lead(lead: dict) -> str | None:
         "Prix recommandé": lead.get("recommended_price", 0),
         "Statut": "Nouveau",
         "Date ajout": today,
-        "Date prochain contact": today,
         "PlaceID": lead.get("place_id", ""),
-        "ApolloID": lead.get("apollo_id", ""),
     }
 
     try:
