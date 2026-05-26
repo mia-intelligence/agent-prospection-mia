@@ -14,7 +14,7 @@ from sources.apollo import fetch_leads_apollo
 from processing.qualifier import qualify_and_personalize
 from crm.airtable_client import (
     is_duplicate, save_lead, update_lead_status,
-    get_leads_to_followup, get_weekly_stats
+    get_leads_to_followup, get_leads_with_new_email, get_weekly_stats
 )
 from outreach.email_sender import (
     send_initial_email, send_followup_email, send_final_offer_email
@@ -174,6 +174,47 @@ Taux conversion  : {round(stats['rdv_booked']/max(stats['responses'],1)*100)}%
     return stats
 
 
+def run_send_pending_emails():
+    """
+    Envoie l'email initial aux leads enrichis manuellement avec un email.
+    Toutes les 30 minutes — détecte les leads 'Sans email' qui ont maintenant une adresse.
+    """
+    logger.info("=== VÉRIFICATION EMAILS EN ATTENTE ===")
+    pending = get_leads_with_new_email()
+
+    if not pending:
+        logger.info("Aucun lead en attente d'email")
+        return 0
+
+    sent = 0
+    for record in pending:
+        f = record["fields"]
+        company = f.get("Entreprise", "?")
+        to_email = f.get("Email", "")
+
+        lead_for_email = {
+            "contact_email": to_email,
+            "company_name": company,
+            "contact_first_name": f.get("Prénom", ""),
+            "contact_last_name": f.get("Nom", ""),
+            "email_subject": f.get("Sujet email", ""),
+            "email_body": f.get("Corps email", ""),
+        }
+
+        ok = send_initial_email(lead_for_email)
+        if ok:
+            update_lead_status(record["id"], "Email envoyé", {
+                "Date email initial": date.today().isoformat()
+            })
+            sent += 1
+            logger.info(f"Email envoyé → {company} ({to_email})")
+        else:
+            logger.error(f"Échec envoi → {company}")
+
+    logger.info(f"=== {sent} emails envoyés sur {len(pending)} en attente ===")
+    return sent
+
+
 def save_lead_with_status(lead: dict, status: str):
     lead["_force_status"] = status
     record_id = save_lead(lead)
@@ -192,10 +233,12 @@ if __name__ == "__main__":
             run_daily_prospection()
         elif cmd == "followup":
             run_daily_followups()
+        elif cmd == "sendemails":
+            run_send_pending_emails()
         elif cmd == "report":
             run_weekly_report()
         else:
-            print("Usage: python main.py [prospect|followup|report]")
+            print("Usage: python main.py [prospect|followup|sendemails|report]")
     else:
         # Par défaut : cycle complet
         run_daily_prospection()

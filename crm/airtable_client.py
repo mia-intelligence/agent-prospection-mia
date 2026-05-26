@@ -88,6 +88,13 @@ def update_lead_status(record_id: str, status: str, extra_fields: dict = None):
         logger.error(f"Erreur Airtable update [{record_id}]: {e}")
 
 
+def get_leads_with_new_email() -> list[dict]:
+    """Leads enrichis manuellement avec un email — statut 'Sans email' mais Email renseigné."""
+    table = get_table()
+    formula = "AND({Statut} = 'Sans email', {Email} != '')"
+    return table.all(formula=formula)
+
+
 def get_leads_to_followup() -> list[dict]:
     """Retourne les prospects qui nécessitent une relance aujourd'hui."""
     table = get_table()
