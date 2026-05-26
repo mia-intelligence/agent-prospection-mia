@@ -222,6 +222,56 @@ def save_lead_with_status(lead: dict, status: str):
         update_lead_status(record_id, status)
 
 
+def run_custom_search(secteurs: list[str], zones: list[str]) -> str:
+    """
+    Recherche personnalisée depuis Telegram — secteurs et zones au choix.
+    Retourne un résumé lisible pour le bot.
+    """
+    import config
+    logger.info(f"=== RECHERCHE PERSONNALISÉE: {secteurs} / {zones} ===")
+
+    # Override temporaire des zones et secteurs
+    original_zones = config.SEARCH_ZONES
+    original_sectors = config.TARGET_SECTORS_MAPS
+    config.SEARCH_ZONES = zones
+    config.TARGET_SECTORS_MAPS = secteurs
+
+    # Reimporter pour prendre en compte les nouvelles valeurs
+    from sources.google_maps import fetch_leads_google_maps
+    leads = fetch_leads_google_maps(max_per_sector=3)
+
+    # Restaurer
+    config.SEARCH_ZONES = original_zones
+    config.TARGET_SECTORS_MAPS = original_sectors
+
+    sent = qualifies = 0
+    for lead in leads:
+        if is_duplicate(lead):
+            continue
+        lead = qualify_and_personalize(lead)
+        if not lead.get("qualified"):
+            save_lead_with_status(lead, "Non qualifié")
+            continue
+        qualifies += 1
+        rid = save_lead(lead)
+        if rid:
+            if lead.get("contact_email"):
+                ok = send_initial_email(lead)
+                if ok:
+                    update_lead_status(rid, "Email envoyé", {"Date email initial": date.today().isoformat()})
+                    sent += 1
+            else:
+                update_lead_status(rid, "Sans email")
+
+    return (
+        f"Recherche terminée — {secteurs} dans {zones}\n"
+        f"Leads trouvés : {len(leads)}\n"
+        f"Qualifiés : {qualifies}\n"
+        f"Emails envoyés : {sent}\n"
+        f"Sans email (à enrichir) : {qualifies - sent}"
+    )
+
+
 if __name__ == "__main__":
     import sys
     import os
@@ -237,9 +287,15 @@ if __name__ == "__main__":
             run_send_pending_emails()
         elif cmd == "report":
             run_weekly_report()
+        elif cmd == "search":
+            # Usage: python main.py search "dentiste,médecin" "Draguignan,Toulon"
+            secteurs = sys.argv[2].split(",") if len(sys.argv) > 2 else ["dentiste"]
+            zones = [z + ", France" for z in sys.argv[3].split(",")] if len(sys.argv) > 3 else ["Var, France"]
+            result = run_custom_search(secteurs, zones)
+            print(result)
         else:
-            print("Usage: python main.py [prospect|followup|sendemails|report]")
+            print("Usage: python main.py [prospect|followup|sendemails|report|search]")
+            print("  search: python main.py search 'dentiste,médecin' 'Draguignan,Toulon'")
     else:
-        # Par défaut : cycle complet
         run_daily_prospection()
         run_daily_followups()
