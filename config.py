@@ -26,37 +26,26 @@ LINKEDIN_DELAY_DAYS = 5            # délai DM LinkedIn après email initial (jo
 SECOND_FOLLOW_UP_DAYS = 7          # délai 2ème relance (offre diagnostic 99€)
 
 # Zones géographiques (Google Maps)
+# 4 zones × 10 secteurs = 40 requêtes/run → ~22€ sur 15 jours (budget 50€)
 SEARCH_ZONES = [
-    "Var, France",
+    "Saint-Maximin-la-Sainte-Baume, France",
     "Toulon, France",
-    "Aix-en-Provence, France",
-    "Marseille, France",
-    "Hyères, France",
-    "Fréjus, France",
     "Brignoles, France",
+    "Hyères, France",
 ]
 
-# Secteurs cibles pour Google Maps
+# Secteurs cibles pour Google Maps — 10 secteurs les plus rentables pour un audit
 TARGET_SECTORS_MAPS = [
     "plombier",
     "électricien",
     "menuisier",
-    "peintre bâtiment",
-    "carreleur",
-    "chauffagiste",
     "coiffeur",
-    "restaurant",
-    "boulangerie",
     "auto-école",
     "kinésithérapeute",
     "agence immobilière",
     "garage automobile",
     "comptable",
     "coach",
-    "consultant",
-    "photographe",
-    "fleuriste",
-    "vétérinaire",
 ]
 
 # Secteurs cibles pour Apollo.io
