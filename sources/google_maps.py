@@ -1,108 +1,99 @@
 """
-Source de leads : Google Maps Places API
-Trouve les TPE/artisans locaux par secteur et zone géographique.
+Source de leads : Google Maps Places API (New)
+Activer "Places API (New)" dans Google Cloud Console → APIs & Services → Bibliothèque.
 """
 
-import googlemaps
+import requests
 import time
 import logging
 from config import GOOGLE_MAPS_API_KEY, SEARCH_ZONES, TARGET_SECTORS_MAPS
 
 logger = logging.getLogger(__name__)
 
+PLACES_URL = "https://places.googleapis.com/v1/places:searchText"
+FIELD_MASK = ",".join([
+    "places.id",
+    "places.displayName",
+    "places.formattedAddress",
+    "places.nationalPhoneNumber",
+    "places.websiteUri",
+    "places.rating",
+    "places.userRatingCount",
+    "places.businessStatus",
+])
 
-def fetch_leads_google_maps(max_per_sector: int = 5) -> list[dict]:
-    """
-    Récupère des leads depuis Google Maps pour tous les secteurs et zones.
-    Retourne une liste de prospects normalisés.
-    """
+
+def fetch_leads_google_maps(max_per_sector: int = 3) -> list[dict]:
     if not GOOGLE_MAPS_API_KEY:
         logger.warning("GOOGLE_MAPS_API_KEY manquant — source Google Maps ignorée")
         return []
 
-    gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
     leads = []
-    seen_place_ids = set()
+    seen_ids = set()
 
     for zone in SEARCH_ZONES:
         for sector in TARGET_SECTORS_MAPS:
             try:
-                results = _search_places(gmaps, sector, zone, max_per_sector)
+                results = _search_places(sector, zone, max_per_sector)
                 for place in results:
-                    place_id = place.get("place_id")
-                    if place_id in seen_place_ids:
+                    place_id = place.get("id")
+                    if place_id in seen_ids:
                         continue
-                    seen_place_ids.add(place_id)
-
-                    lead = _normalize_google_maps_lead(place, sector, zone)
+                    seen_ids.add(place_id)
+                    lead = _normalize(place, sector, zone)
                     if lead:
                         leads.append(lead)
-
-                time.sleep(0.2)  # Respecter les rate limits Google
-
+                time.sleep(0.1)
+            except requests.HTTPError as e:
+                logger.error(f"Places API error pour '{sector} {zone}': {e.response.status_code} — {e.response.text[:200]}")
             except Exception as e:
-                logger.error(f"Erreur Google Maps [{sector} / {zone}]: {e}")
-                continue
+                logger.error(f"Places API error pour '{sector} {zone}': {e}")
 
     logger.info(f"Google Maps: {len(leads)} leads collectés")
     return leads
 
 
-def _search_places(gmaps, sector: str, zone: str, max_results: int) -> list:
-    query = f"{sector} {zone}"
-    try:
-        response = gmaps.places(query=query)
-        results = response.get("results", [])[:max_results]
-
-        # Récupérer les détails pour avoir le site web et le téléphone
-        detailed = []
-        for place in results:
-            place_id = place.get("place_id")
-            if place_id:
-                try:
-                    detail = gmaps.place(
-                        place_id=place_id,
-                        fields=["name", "formatted_address", "formatted_phone_number",
-                                "website", "rating", "user_ratings_total", "place_id",
-                                "business_status", "types"]
-                    )
-                    detailed.append(detail.get("result", place))
-                    time.sleep(0.1)
-                except Exception:
-                    detailed.append(place)
-            else:
-                detailed.append(place)
-        return detailed
-
-    except Exception as e:
-        logger.error(f"Places API error pour '{query}': {e}")
-        return []
+def _search_places(sector: str, zone: str, max_results: int) -> list:
+    response = requests.post(
+        PLACES_URL,
+        json={
+            "textQuery": f"{sector} {zone}",
+            "languageCode": "fr",
+            "maxResultCount": min(max_results, 20),
+        },
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+            "X-Goog-FieldMask": FIELD_MASK,
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json().get("places", [])
 
 
-def _normalize_google_maps_lead(place: dict, sector: str, zone: str) -> dict | None:
-    name = place.get("name", "").strip()
+def _normalize(place: dict, sector: str, zone: str) -> dict | None:
+    name = place.get("displayName", {}).get("text", "").strip()
     if not name:
         return None
 
-    # Filtrer les établissements fermés
-    if place.get("business_status") == "CLOSED_PERMANENTLY":
+    if place.get("businessStatus") == "CLOSED_PERMANENTLY":
         return None
 
-    # Filtrer les grandes chaînes (rating élevé avec beaucoup d'avis = déjà bien équipés)
-    rating = place.get("rating", 0)
-    reviews = place.get("user_ratings_total", 0)
-    if reviews > 500 and rating >= 4.5:  # Probablement une chaîne nationale
+    reviews = place.get("userRatingCount", 0) or 0
+    rating = place.get("rating", 0) or 0
+    if reviews > 500 and rating >= 4.5:
         return None
 
     return {
         "source": "google_maps",
-        "place_id": place.get("place_id", ""),
+        "place_id": place.get("id", ""),
         "company_name": name,
         "sector": sector,
-        "address": place.get("formatted_address", ""),
+        "address": place.get("formattedAddress", ""),
         "zone": zone,
-        "phone": place.get("formatted_phone_number", ""),
-        "website": place.get("website", ""),
+        "phone": place.get("nationalPhoneNumber", ""),
+        "website": place.get("websiteUri", ""),
         "rating": rating,
         "reviews_count": reviews,
         "contact_first_name": "",
