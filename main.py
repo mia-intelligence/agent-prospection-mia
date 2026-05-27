@@ -39,9 +39,9 @@ def run_daily_prospection():
     """
     logger.info("=== CYCLE PROSPECTION DÉMARRÉ ===")
 
-    # 1. Collecte des leads
+    # 1. Collecte des leads — plafond 30/jour pour maîtriser le budget
     logger.info("Collecte Google Maps...")
-    google_leads = fetch_leads_google_maps(max_per_sector=3)
+    google_leads = fetch_leads_google_maps(max_per_sector=3, max_total=30)
 
     # Apollo désactivé — nécessite un plan payant (People Search)
     # apollo_leads = fetch_leads_apollo(max_per_sector=5)
@@ -225,24 +225,18 @@ def save_lead_with_status(lead: dict, status: str):
 def run_custom_search(secteurs: list[str], zones: list[str]) -> str:
     """
     Recherche personnalisée depuis Telegram — secteurs et zones au choix.
+    Plafonnée à 20 leads bruts pour maîtriser le budget.
     Retourne un résumé lisible pour le bot.
     """
-    import config
     logger.info(f"=== RECHERCHE PERSONNALISÉE: {secteurs} / {zones} ===")
 
-    # Override temporaire des zones et secteurs
-    original_zones = config.SEARCH_ZONES
-    original_sectors = config.TARGET_SECTORS_MAPS
-    config.SEARCH_ZONES = zones
-    config.TARGET_SECTORS_MAPS = secteurs
-
-    # Reimporter pour prendre en compte les nouvelles valeurs
-    from sources.google_maps import fetch_leads_google_maps
-    leads = fetch_leads_google_maps(max_per_sector=3)
-
-    # Restaurer
-    config.SEARCH_ZONES = original_zones
-    config.TARGET_SECTORS_MAPS = original_sectors
+    # Passe zones et secteurs en paramètre — pas d'override du module config
+    leads = fetch_leads_google_maps(
+        max_per_sector=2,
+        zones=zones,
+        sectors=secteurs,
+        max_total=20,
+    )
 
     sent = qualifies = 0
     for lead in leads:

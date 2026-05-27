@@ -24,18 +24,35 @@ FIELD_MASK = ",".join([
 ])
 
 
-def fetch_leads_google_maps(max_per_sector: int = 3) -> list[dict]:
+def fetch_leads_google_maps(
+    max_per_sector: int = 3,
+    zones: list[str] | None = None,
+    sectors: list[str] | None = None,
+    max_total: int = 50,
+) -> list[dict]:
+    """
+    Collecte les leads via Google Maps Places API.
+    - zones / sectors : override les valeurs du config si fournis
+    - max_total : plafond absolu de leads retournés (protection budget)
+    """
     if not GOOGLE_MAPS_API_KEY:
         logger.warning("GOOGLE_MAPS_API_KEY manquant — source Google Maps ignorée")
         return []
 
+    active_zones = zones if zones is not None else SEARCH_ZONES
+    active_sectors = sectors if sectors is not None else TARGET_SECTORS_MAPS
+
     leads = []
     seen_ids = set()
 
-    for zone in SEARCH_ZONES:
-        for sector in TARGET_SECTORS_MAPS:
+    for zone in active_zones:
+        for sector in active_sectors:
+            if len(leads) >= max_total:
+                logger.info(f"Plafond atteint ({max_total} leads) — arrêt collecte")
+                break
             try:
                 results = _search_places(sector, zone, max_per_sector)
+
                 for place in results:
                     place_id = place.get("id")
                     if place_id in seen_ids:
@@ -56,8 +73,8 @@ def fetch_leads_google_maps(max_per_sector: int = 3) -> list[dict]:
             except Exception as e:
                 logger.error(f"Places API error pour '{sector} {zone}': {e}")
 
-    logger.info(f"Google Maps: {len(leads)} leads collectés")
-    return leads
+    logger.info(f"Google Maps: {len(leads)} leads collectés (plafond={max_total})")
+    return leads[:max_total]
 
 
 def _search_places(sector: str, zone: str, max_results: int) -> list:
