@@ -51,7 +51,7 @@ def run_daily_prospection():
 
     sent_count = 0
     skipped_dup = 0
-    skipped_score = 0
+    skipped_no_email = 0
 
     for lead in all_leads:
         company = lead.get("company_name", "?")
@@ -62,42 +62,42 @@ def run_daily_prospection():
             skipped_dup += 1
             continue
 
-        # 3. Qualification via Claude
+        # 3. EMAIL EN PREMIER — pas d'email = pas de Claude, pas d'Airtable
+        if not lead.get("contact_email"):
+            logger.info(f"Ignoré (pas d'email trouvé) : {company}")
+            skipped_no_email += 1
+            continue
+
+        # 4. Qualification via Claude (seulement si email disponible)
         lead = qualify_and_personalize(lead)
         score = lead.get("qualification_score", 0)
 
         if not lead.get("qualified"):
             logger.info(f"Score insuffisant ({score}/10) — ignoré : {company}")
-            skipped_score += 1
-            save_lead_with_status(lead, "Non qualifié")
             continue
 
-        # 4. Sauvegarde Airtable
+        # 5. Sauvegarde Airtable
         record_id = save_lead(lead)
         if not record_id:
             logger.warning(f"Impossible de sauvegarder {company} dans Airtable")
             continue
 
-        # 5. Envoi email initial
-        if lead.get("contact_email"):
-            # Email probable (deviné par pattern) → attente validation manuelle
-            if lead.get("email_verified") is False:
-                update_lead_status(record_id, "Email probable")
-                logger.info(f"[{score}/10] Email probable → {company} ({lead.get('contact_email')}) — à valider dans Airtable")
-            else:
-                # Email trouvé (scraping ou DDG) → envoi automatique
-                email_sent = send_initial_email(lead)
-                if email_sent:
-                    update_lead_status(record_id, "Email envoyé", {
-                        "Date email initial": date.today().isoformat()
-                    })
-                    sent_count += 1
-                    logger.info(f"[{score}/10] Email envoyé → {company} ({lead.get('contact_email')})")
-                else:
-                    update_lead_status(record_id, "Erreur envoi")
+        # 6. Envoi email
+        if lead.get("email_verified") is False:
+            # Email deviné (pattern) → attente validation Laetitia dans Airtable
+            update_lead_status(record_id, "Email probable")
+            logger.info(f"[{score}/10] Email probable → {company} ({lead.get('contact_email')})")
         else:
-            update_lead_status(record_id, "Sans email")
-            logger.info(f"[{score}/10] Sauvegardé sans email → {company} (LinkedIn ou tél)")
+            # Email confirmé (scraping/DDG) → envoi automatique
+            email_sent = send_initial_email(lead)
+            if email_sent:
+                update_lead_status(record_id, "Email envoyé", {
+                    "Date email initial": date.today().isoformat()
+                })
+                sent_count += 1
+                logger.info(f"[{score}/10] Email envoyé → {company} ({lead.get('contact_email')})")
+            else:
+                update_lead_status(record_id, "Erreur envoi")
 
     logger.info(
         f"Prospection terminée : {sent_count} emails envoyés, "
@@ -244,31 +244,35 @@ def run_custom_search(secteurs: list[str], zones: list[str]) -> str:
         max_total=20,
     )
 
-    sent = qualifies = 0
+    sent = qualifies = skipped_no_email = 0
     for lead in leads:
         if is_duplicate(lead):
             continue
+        # Email d'abord — Claude seulement si contactable
+        if not lead.get("contact_email"):
+            skipped_no_email += 1
+            continue
         lead = qualify_and_personalize(lead)
         if not lead.get("qualified"):
-            save_lead_with_status(lead, "Non qualifié")
             continue
         qualifies += 1
         rid = save_lead(lead)
         if rid:
-            if lead.get("contact_email"):
+            if lead.get("email_verified") is False:
+                update_lead_status(rid, "Email probable")
+            else:
                 ok = send_initial_email(lead)
                 if ok:
                     update_lead_status(rid, "Email envoyé", {"Date email initial": date.today().isoformat()})
                     sent += 1
-            else:
-                update_lead_status(rid, "Sans email")
 
     return (
         f"Recherche terminée — {secteurs} dans {zones}\n"
         f"Leads trouvés : {len(leads)}\n"
-        f"Qualifiés : {qualifies}\n"
+        f"Sans email (ignorés) : {skipped_no_email}\n"
+        f"Qualifiés avec email : {qualifies}\n"
         f"Emails envoyés : {sent}\n"
-        f"Sans email (à enrichir) : {qualifies - sent}"
+        f"Emails probables (à valider) : {qualifies - sent}"
     )
 
 
