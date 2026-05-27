@@ -80,15 +80,21 @@ def run_daily_prospection():
 
         # 5. Envoi email initial
         if lead.get("contact_email"):
-            email_sent = send_initial_email(lead)
-            if email_sent:
-                update_lead_status(record_id, "Email envoyé", {
-                    "Date email initial": date.today().isoformat()
-                })
-                sent_count += 1
-                logger.info(f"[{score}/10] Email envoyé → {company} ({lead.get('contact_email')})")
+            # Email probable (deviné par pattern) → attente validation manuelle
+            if lead.get("email_verified") is False:
+                update_lead_status(record_id, "Email probable")
+                logger.info(f"[{score}/10] Email probable → {company} ({lead.get('contact_email')}) — à valider dans Airtable")
             else:
-                update_lead_status(record_id, "Erreur envoi")
+                # Email trouvé (scraping ou DDG) → envoi automatique
+                email_sent = send_initial_email(lead)
+                if email_sent:
+                    update_lead_status(record_id, "Email envoyé", {
+                        "Date email initial": date.today().isoformat()
+                    })
+                    sent_count += 1
+                    logger.info(f"[{score}/10] Email envoyé → {company} ({lead.get('contact_email')})")
+                else:
+                    update_lead_status(record_id, "Erreur envoi")
         else:
             update_lead_status(record_id, "Sans email")
             logger.info(f"[{score}/10] Sauvegardé sans email → {company} (LinkedIn ou tél)")

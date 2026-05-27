@@ -8,6 +8,7 @@ import time
 import logging
 from config import GOOGLE_MAPS_API_KEY, SEARCH_ZONES, TARGET_SECTORS_MAPS
 from sources.email_scraper import scrape_email
+from sources.email_hunter import hunt_email
 
 logger = logging.getLogger(__name__)
 
@@ -60,12 +61,26 @@ def fetch_leads_google_maps(
                     seen_ids.add(place_id)
                     lead = _normalize(place, sector, zone)
                     if lead:
-                        # Enrichissement email depuis le site web
+                        # Couche 1 : scraping du site web (mailto: + regex)
                         if lead.get("website") and not lead.get("contact_email"):
                             email = scrape_email(lead["website"])
                             if email:
                                 lead["contact_email"] = email
-                                logger.info(f"Email trouvé sur site → {lead['company_name']}: {email}")
+                                logger.info(f"[Scraper] Email → {lead['company_name']}: {email}")
+
+                        # Couche 2 & 3 : DDG + patterns SMTP si toujours rien
+                        if not lead.get("contact_email"):
+                            email, verified = hunt_email(
+                                company_name=lead["company_name"],
+                                zone=lead["zone"],
+                                website=lead.get("website", ""),
+                            )
+                            if email:
+                                lead["contact_email"] = email
+                                lead["email_verified"] = verified
+                                tag = "vérifié" if verified else "probable"
+                                logger.info(f"[Hunter/{tag}] Email → {lead['company_name']}: {email}")
+
                         leads.append(lead)
                 time.sleep(0.1)
             except requests.HTTPError as e:
