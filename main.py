@@ -90,7 +90,7 @@ def run_daily_prospection():
             else:
                 update_lead_status(record_id, "Erreur envoi")
         else:
-            update_lead_status(record_id, "Sans email — relance manuelle")
+            update_lead_status(record_id, "Sans email")
             logger.info(f"[{score}/10] Sauvegardé sans email → {company} (LinkedIn ou tél)")
 
     logger.info(
