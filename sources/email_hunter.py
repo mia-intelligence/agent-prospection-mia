@@ -44,33 +44,65 @@ DDG_DELAY = 1.5
 
 # ── Fonction principale ───────────────────────────────────────────────────────
 
-def hunt_email(company_name: str, zone: str, website: str = "") -> tuple[str, bool]:
+def hunt_email(
+    company_name: str,
+    zone: str,
+    website: str = "",
+    phone: str = "",
+) -> tuple[str, bool, dict]:
     """
     Cherche l'email d'une entreprise sans API payante.
+    Cascade : PagesJaunes → Societe.com → DuckDuckGo → Patterns SMTP
 
-    Retourne (email, verified) :
-      - verified=True  : email trouvé sur le web, fiable → envoi auto
-      - verified=False : email deviné par pattern → à valider manuellement
+    Retourne (email, verified, extras) :
+      - verified=True  : email trouvé sur le web → envoi auto
+      - verified=False : email deviné par pattern → validation manuelle
+      - extras         : dict avec dirigeant, siret, actif (depuis Societe.com)
     """
     domain = _extract_domain(website)
+    city = zone.replace(", France", "").strip()
+    extras = {"dirigeant": "", "siret": "", "actif": True}
 
-    # ── Couche 1 : DuckDuckGo ─────────────────────────────────────────────
+    # ── Couche 1 : PagesJaunes ────────────────────────────────────────────
+    try:
+        from sources.pages_jaunes import search_pages_jaunes
+        email = search_pages_jaunes(company_name, city, phone)
+        if email:
+            logger.info(f"[PagesJaunes] Email : {email} ({company_name})")
+            return email, True, extras
+    except Exception as e:
+        logger.debug(f"PagesJaunes error: {e}")
+
+    # ── Couche 2 : Societe.com ────────────────────────────────────────────
+    try:
+        from sources.societe_com import search_societe_com
+        data = search_societe_com(company_name, city)
+        extras.update({k: data[k] for k in ("dirigeant", "siret", "actif")})
+        if data.get("email"):
+            logger.info(f"[Societe.com] Email : {data['email']} ({company_name})")
+            return data["email"], True, extras
+        if not data.get("actif"):
+            logger.info(f"[Societe.com] Entreprise inactive — ignorée : {company_name}")
+            return "", False, extras
+    except Exception as e:
+        logger.debug(f"Societe.com error: {e}")
+
+    # ── Couche 3 : DuckDuckGo ─────────────────────────────────────────────
     email = _search_duckduckgo(company_name, zone, domain)
     if email:
-        logger.info(f"[DDG] Email trouvé : {email} ({company_name})")
-        return email, True
+        logger.info(f"[DDG] Email : {email} ({company_name})")
+        return email, True, extras
 
-    # ── Couche 2 + 3 : Patterns + SMTP ───────────────────────────────────
+    # ── Couche 4 : Patterns + SMTP ────────────────────────────────────────
     if domain:
         email = _try_patterns_with_smtp(domain)
         if email:
-            return email, False          # probable mais non vérifié
-        # Sans SMTP (port bloqué) : renvoie le pattern le plus probable
+            return email, False, extras
         probable = f"contact@{domain}"
-        logger.info(f"[Pattern] Email probable (non vérifié) : {probable} ({company_name})")
-        return probable, False
+        logger.info(f"[Pattern] Email probable : {probable} ({company_name})")
+        return probable, False, extras
 
-    return "", False
+    return "", False, extras
 
 
 # ── Couche 1 : DuckDuckGo ─────────────────────────────────────────────────────

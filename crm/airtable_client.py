@@ -95,6 +95,13 @@ def get_leads_with_new_email() -> list[dict]:
     return table.all(formula=formula)
 
 
+def get_leads_without_email() -> list[dict]:
+    """Leads Airtable sans email à enrichir (statut 'Sans email', champ Email vide)."""
+    table = get_table()
+    formula = "AND({Statut} = 'Sans email', {Email} = '')"
+    return table.all(formula=formula)
+
+
 def get_leads_to_followup() -> list[dict]:
     """Retourne les prospects qui nécessitent une relance aujourd'hui."""
     table = get_table()

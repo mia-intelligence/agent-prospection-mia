@@ -68,18 +68,25 @@ def fetch_leads_google_maps(
                                 lead["contact_email"] = email
                                 logger.info(f"[Scraper] Email → {lead['company_name']}: {email}")
 
-                        # Couche 2 & 3 : DDG + patterns SMTP si toujours rien
+                        # Couches 2-5 : PagesJaunes, Societe.com, DDG, Patterns
                         if not lead.get("contact_email"):
-                            email, verified = hunt_email(
+                            email, verified, extras = hunt_email(
                                 company_name=lead["company_name"],
                                 zone=lead["zone"],
                                 website=lead.get("website", ""),
+                                phone=lead.get("phone", ""),
                             )
                             if email:
                                 lead["contact_email"] = email
                                 lead["email_verified"] = verified
                                 tag = "vérifié" if verified else "probable"
                                 logger.info(f"[Hunter/{tag}] Email → {lead['company_name']}: {email}")
+                            # Enrichit avec dirigeant si trouvé sur Societe.com
+                            if extras.get("dirigeant") and not lead.get("contact_first_name"):
+                                parts = extras["dirigeant"].split()
+                                if len(parts) >= 2:
+                                    lead["contact_first_name"] = parts[0].capitalize()
+                                    lead["contact_last_name"] = " ".join(parts[1:])
 
                         leads.append(lead)
                 time.sleep(0.1)

@@ -221,6 +221,87 @@ def run_send_pending_emails():
     return sent
 
 
+def run_enrich_existing() -> str:
+    """
+    Reprend les leads Airtable avec statut 'Sans email' (champ Email vide)
+    et tente de trouver leur email via PagesJaunes, Societe.com, DDG et patterns.
+    Lance manuellement : python main.py enrich
+    """
+    from crm.airtable_client import get_leads_without_email
+    from sources.email_hunter import hunt_email
+    import time
+
+    leads = get_leads_without_email()
+    logger.info(f"=== ENRICHISSEMENT : {len(leads)} leads sans email dans Airtable ===")
+
+    enriched = verified_count = probable_count = inactive_count = 0
+
+    for record in leads:
+        f = record["fields"]
+        company  = f.get("Entreprise", "?")
+        zone     = f.get("Zone", "")
+        website  = f.get("Site web", "")
+        phone    = f.get("Téléphone", "")
+
+        logger.info(f"Enrichissement → {company}")
+
+        email, verified, extras = hunt_email(
+            company_name=company,
+            zone=zone,
+            website=website,
+            phone=phone,
+        )
+
+        # Entreprise inactive détectée sur Societe.com
+        if not extras.get("actif", True):
+            update_lead_status(record["id"], "Inactif")
+            inactive_count += 1
+            logger.info(f"Inactive → {company}")
+            time.sleep(2)
+            continue
+
+        if email:
+            enriched += 1
+            extra_fields = {"Email": email}
+
+            # Enrichir avec le nom du dirigeant si trouvé
+            if extras.get("dirigeant") and not f.get("Nom"):
+                parts = extras["dirigeant"].split()
+                if len(parts) >= 2:
+                    extra_fields["Prénom"] = parts[0].capitalize()
+                    extra_fields["Nom"] = " ".join(parts[1:]).upper()
+
+            if extras.get("siret"):
+                extra_fields["SIRET"] = extras["siret"]
+
+            if verified:
+                # Email fiable → garde statut "Sans email" pour que le cron sendemails l'envoie
+                update_lead_status(record["id"], "Sans email", extra_fields)
+                verified_count += 1
+                logger.info(f"✓ Email trouvé (vérifié) → {company} : {email}")
+            else:
+                # Email probable → statut spécifique, Laetitia valide dans Airtable
+                update_lead_status(record["id"], "Email probable", extra_fields)
+                probable_count += 1
+                logger.info(f"~ Email probable → {company} : {email}")
+        else:
+            logger.info(f"✗ Aucun email trouvé → {company}")
+
+        time.sleep(2)  # Respecte les rate-limits des sites
+
+    summary = (
+        f"\n=== ENRICHISSEMENT TERMINÉ ===\n"
+        f"Leads traités       : {len(leads)}\n"
+        f"Emails trouvés      : {enriched} ({verified_count} vérifiés + {probable_count} probables)\n"
+        f"Entreprises inactives: {inactive_count}\n"
+        f"Sans email (reste)  : {len(leads) - enriched - inactive_count}\n"
+        f"\nLes emails vérifiés seront envoyés automatiquement par le cron sendemails.\n"
+        f"Les emails probables sont visibles dans Airtable — valide et change le statut en 'Sans email'."
+    )
+    logger.info(summary)
+    return summary
+
+
 def save_lead_with_status(lead: dict, status: str):
     lead["_force_status"] = status
     record_id = save_lead(lead)
@@ -297,9 +378,13 @@ if __name__ == "__main__":
             zones = [z + ", France" for z in sys.argv[3].split(",")] if len(sys.argv) > 3 else ["Var, France"]
             result = run_custom_search(secteurs, zones)
             print(result)
+        elif cmd == "enrich":
+            # Enrichit les leads Airtable 'Sans email' avec PagesJaunes, Societe.com, DDG
+            print(run_enrich_existing())
         else:
-            print("Usage: python main.py [prospect|followup|sendemails|report|search]")
-            print("  search: python main.py search 'dentiste,médecin' 'Draguignan,Toulon'")
+            print("Usage: python main.py [prospect|followup|sendemails|report|search|enrich]")
+            print("  search : python main.py search 'dentiste,médecin' 'Draguignan,Toulon'")
+            print("  enrich : python main.py enrich   ← reprend les leads sans email dans Airtable")
     else:
         run_daily_prospection()
         run_daily_followups()
