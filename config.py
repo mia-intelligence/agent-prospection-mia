@@ -16,7 +16,7 @@ PHANTOMBUSTER_AGENT_ID = os.getenv("PHANTOMBUSTER_AGENT_ID", "")
 # Expéditeur MIA
 MIA_EMAIL = os.getenv("MIA_EMAIL", "contact@mia-intelligence.com")
 MIA_NAME = os.getenv("MIA_NAME", "Laetitia Coloré — MIA")
-CALENDLY_LINK = os.getenv("CALENDLY_LINK", "https://calendly.com/mia-intelligence/diagnostic-express")
+CALENDLY_LINK = os.getenv("CALENDLY_LINK", "https://calendly.com/mia-intelligence/audit-act-ia")
 
 # Paramètres prospection
 LEADS_PER_DAY_TARGET = 30          # leads bruts à collecter par jour
